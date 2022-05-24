@@ -1,0 +1,437 @@
+---
+title: "R code for GLS"
+author: "Q"
+date: "24/05/2022"
+output: html_document
+---
+
+#  1 Research Questions
+
+In line with the programme objectives, we are going to ask some questions of the data:
+
+ - Does density appear to have changed across phases?
+ - What are the best predictors of density and what do these relationships look like?
+ - Do the animals appear to have redistributed across phases? If so, what does that redistribution look like?
+ 
+# 2 Multiple Linear Regression
+We are going to try and use variables in the EIA data to predict density in this area using linear regression. **Regression** is a way to study relationships between variables. There are two main reasons why we may want to do this:
+
+ - **Description**: We may be genuinely interested in finding the relationship between such variables (e.g. what, if any, is the relationship between density and depth?)
+
+ - **Prediction**: If there is a relationship between the variables under study, then knowledge of some variables will help us predict others (e.g., if we know that density changes with depth on the transects, then knowing the depth of a site will help us predict density off the transects).
+
+Linear regression models contain explanatory variable(s) that help us explain or predict the behaviour of the response variable (whose behaviour we want to predict).
+
+Linear models assume constantly increasing or decreasing relationships between each explanatory variable and the response.
+
+Note, there is some overlap between year and phase information, since the phases move from A, B to C over the years. Specifically, phase C only occurs in 2011 while phase B occurs 2003-2007 and phase A in 2000-2002.
+
+```{r}
+df <- read.csv("NystedFarms.csv")
+head(df)
+knitr::kable(table(df$Phase, df$Year))
+```
+
+This will mean that both phase and year will be unable to be fitted together in a model (for collinearity reasons, see the notes to the introductory statistics course).
+
+## 2.1 Model specification and model fitting
+
+At this point we are going to assume the relationship between each continuous covariate and density is linear. In our interaction-based model we have:
+$$y_{it} = \beta_0 + \beta_1x_{1it} + \beta_2x_{2it} + \cdots + \beta_13x_{13it}$$
+where  
+
+ - $x_{1it}$ represents the X coordinate (for the $i$-transect at time $t$)
+ 
+ - $x_{2it}$ represents the Y-coordinate (for the $i$-transect at time $t$)
+ 
+ - $x_{3it}$ represents distance from coast (for the $i$-transect at time $t$) 
+ 
+ - $x_{4it}$ represents depth (for the $i$-transect at time $t$)
+ 
+ - $x_{5it}$ represents month=2
+ 
+ - $x_{6it}$ represents month=3
+ 
+ - $x_{7it}$ represents month=4
+ 
+ - $x_{8it}$ represents phase B (for the $i$-transect at time $t$)
+ 
+ - $x_{9it}$ represents phase C (for the $i$-transect at time $t$)
+ 
+ - $x_{10it}$ represents the interaction term X:phaseB
+ 
+ - $\beta_{10}$ is the expected change in the slope coefficient for the X relationship in phase B compared with the X relationship in phase A
+ 
+ - $x_{11it}$ represents the interaction term X:phaseC
+ 
+ - $\beta_{11}$ is the expected change in the slope coefficient for the X relationship in phase C compared with the X relationship in phase A
+ 
+ - $x_{12it}$ represents the interaction term Y:phaseB
+ 
+ - $\beta_{12}$ is the expected change in the slope coefficient for the Y relationship in phase B compared with the Y relationship in phase A
+ 
+ - $x_{13it}$ represents the interaction term Y:phaseC
+ 
+ - $\beta_{13}$ is the expected change in the slope coefficient for the Y relationship in phase C compared with the Y relationship in phase A
+
+
+```{r}
+# Multiple Linear Regression
+df$FMonth        <- as.factor(df$Month)
+df$Phase         <- as.factor(df$Phase)
+workingModel_Int <- lm(Count/Area ~ XPos + YPos + DistCoast + Depth + FMonth +
+                         Phase + Phase:XPos + Phase:YPos, data=df)
+summary(workingModel_Int)
+```
+
+
+## 2.2 Parameter interpretation
+
+Typically we wouldn’t proceed with interpreting model output until we had assessed model assumptions and had confidence in this revised model.
+
+ - The parameter for each continuous covariate is defined as the change in the expected density for a unit increase in a given covariate.
+
+ - The parameter for each discrete covariate (month and phase) is defined as the change in expected density for a given month or phase compared with the baseline (month=1 and phase=A)
+
+## 2.3 Hypothesis testing
+
+Hypothesis test results for each covariate are shown in the t value and Pr(>|t|) columns in the R output.
+
+Specifically, the two-sided hypothesis test of no relationship for each covariate (ie. $H_0: \beta_j = 0$, $H_1: \beta_j \neq 0$ is performed in the familiar way:
+$$ t = \frac{\widehat{\beta_j}-0}{se(\widehat{\beta_j})}$$
+So, based on the *p*-values in the <span style="font-family:Calibri (Body);">workingModel_Int</span> output, which variables should be retained in this model?
+
+It is difficult to know. Factor variables have multiple coefficients so we are interested in assessing a group of coefficients simultaneously.
+
+For example, trying to choose between models with and without phase means comparing models that differ by 2 parameters. Here, we’ll compare a reduced model (without any phase parameters), and the full model (with the phase coefficients).
+
+We can formally test the hypothesis that the reduced model (with *q* parameters) is as good as the full model (with *p* parameters) and hence the reduced model is preferred.
+
+If $H_0$ is true, and a reduced model is as good as the full model, the *F*-statistic will be small:
+$$ F = \frac{(ESS_{ReducedModel}-ESS_{FullModel)}/(p-q)}{ESS_{FullModel}/(N-p-1)} \sim F_{(p-1,N-p-1)}$$
+This procedure to evaluate the F-test is also called the **Analysis of Variance (ANOVA)**. If we fit a reduced model and compare it with a full model, then R can do the calculations for each covariate:
+
+```{r}
+library(car)
+Anova(workingModel_Int)
+```
+
+## 2.4 Model selection
+Methods of variable selection:
+
+ - backward elimination (e.g. stepwise selection using the **step** function or *p*-values)
+ 
+ - forwards selection
+ 
+ - all possible subsets (e.g. using the **dredge** function).
+ 
+ 
+Options for assessing “best” fit for each of the methods above:
+
+ - Information criteria (e.g. AIC, BIC, etc.)
+ 
+ - *p*-values (Wald tests or F-tests)
+ 
+ - other criteria such as cross-validation
+ 
+Using the F-test results, if we remove the Y-phase interaction from the model then all terms are now significant in the model.
+
+```{r}
+workingModel_Int<- update(workingModel_Int, .~. -YPos:Phase)
+Anova(workingModel_Int)
+```
+
+## 2.5 Checking model assumptions
+
+Before we interpret model coefficients and/or make predictions based on this model, we should assess if the assumptions on which the model is based are reasonable.
+
+In setting up the model, we have assumed that the relationship between each covariate and the response is linear, but we have also assumed the errors are Normally distributed, independent (i.e., uncorrelated with each other) and have constant variance.
+
+If all model assumptions are satisfied, the residuals should behave approximately like a random sample from a Normal distribution centered at 0. If some of the assumptions are violated we should see a systematic pattern in the residuals.
+
+### 2.5.1 Assessing Linearity
+To check that linearity for each term in a working model (with or without interactions) is appropriate, it is best to produce **partial residual plots**.
+
+```{r}
+workingModel<-update(workingModel_Int, .~. - XPos:Phase)
+par(mfrow=c(3,2))
+termplot(workingModel,se=T)
+```
+
+To view partial relationships when interaction terms are present, we need to use the **effects** library.
+
+This can be used to generate the partial plots for either the terms separately (e.g. for the Y-coordinate relationship, see below) or the interactions (e.g. for XPos:Phase, see below):
+
+```{r}
+library(effects)
+plot(effect(c("XPos:Phase"), workingModel_Int, ylab="XPos"))
+```
+
+In this case, it is hard to determine if linearity is reasonable for the continuous covariates due to the size of the partial residuals.
+
+### 2.5.2 Assessing constant variance
+
+Constant error variance can be checked visually using residual plots.
+
+The residuals should exhibit roughly equal spread across the range of the fitted values if constant error variance holds and thus, changes in the spread of residuals across the fitted value range indicate this assumption is violated.
+
+We can also formally test for non-constant error variance using the **Breusch-Pagan** test ($H_0$: constant error variance).
+
+The idea behind the test is that if we have constant error variance then the variation in the residuals (the squared residuals from our working model, $r_{it}^2$) should be unrelated to any of the covariates.
+
+
+```{r}
+library(ggplot2)
+ggplot(workingModel_Int, aes(.fitted, .stdresid)) + geom_point()
+```
+
+The variance of the residuals appears to increase with the fitted values.
+
+```{r}
+ncvTest(workingModel_Int)
+```
+
+The Breusch-Pagan test also suggests strong evidence of non-constant error variance.
+
+### 2.5.3 Assessing Independence
+
+When the errors are independent the residuals should resemble a random scatter of points about the horizontal axis. Clusters of successive positive or negative residuals suggest serial correlation (a relationship between successive residuals).
+
+```{r}
+sres200<-rstandard(workingModel_Int)[1:200]
+dr<-data.frame(1:200,sres200)
+colnames(dr)<-c("Index","StRes")
+
+ggplot(dr, aes(x=Index, y=StRes)) + 
+  geom_line() +
+  geom_point() + 
+  theme_bw() +
+  geom_hline(aes(yintercept=0))+
+  xlab("Observation Order") + ylab("Standardised Residuals") 
+```
+
+In this case, a pattern is evident; there is clear oscillation between negative and positive residuals suggesting some positive temporal correlation.
+
+This is not surprising when you consider we have density data collected along transects over time.
+
+Independence is also a **critical** model assumption and violation of this assumption can lead to unrealistic standard errors and misleading significance tests.
+
+In short, positively correlated data:
+
+ - vary less than independent data (data along transects is typically more similar than data from different transects) and
+
+ - offer less information than independent pieces of data (i.e., our effective sample size is less than the apparent sample size).
+
+
+These features combined lead us to underestimate the error variance (compared with independent data) and assume we have a sample size which is larger than it is. This can lead us to falsely conclude that one or more irrelevant variables are important.
+
+Correlated errors in the model also means that the least-squares method of obtaining the parameter estimates is no longer ideal – that is they don’t always return parameter estimates which are closest to the true parameter value. There are better estimators for data of this type, which get closer to the parameter more of the time.
+
+
+In these cases, methods which do not require independent errors can be used instead; a generalized least squares (GLS) model is a linear model alternative which allows correlated errors (see later).
+
+# 3 Generalized Least Squares
+
+Content:  
+1. Model Specification   
+2. Assessing residual independence   
+3. Modelling residual correlation using GLS   
+4. Assessing normality   
+5. Conclusions 
+
+Very often data exhibit a positive mean-variance relationship, (i.e. the residual variance increases with the fitted values) and this is what we have in this case.
+
+An increasing mean-variance relationship can be modelled explicitly using **generalized least squares**, and if we select the type of this relationship it can be implemented using the **gls** function in the **nlme** library in R.
+
+## 3.1 Model Specification
+
+We will consider a GLS-based model for the square-root transformed response, since if we undo this transformation after model fitting and square the fitted values (to obtain predictions on the response scale), these density predictions can never be negative:
+
+```{r}
+df$FMonth<-as.factor(df$Month)
+sqrtModel<-lm(sqrt(Count/Area) ~ XPos + YPos + DistCoast + Depth + FMonth +
+                Phase+Phase:XPos, data = df)
+summary(fitted(sqrtModel))
+```
+
+We can use the varPower or varExp options in the **gls** function to implement Equations and respectively, e.g.:
+
+```{r}
+require(nlme)
+workingModel_GLS<- gls(sqrt(Count/Area) ~ XPos + YPos + DistCoast + 
+                         Depth + FMonth +Phase*XPos, 
+                       data = df, weights=varExp(), method="ML")
+```
+
+We are using ML-based estimation here (which we’ll cover later) to ensure we can compare AIC scores across models. The attempt to fit the power-related variance function to this mean-variance relationship was unsuccessful, and this might be due to the almost zero variance values for the smallest fitted values.
+
+The exponential-based variance function (which could be fitted) is less than best – it only approximates the function until the fitted values reach 0.6; after this point the residual variance is estimated to be much larger than we see in the residuals (see figure below).
+
+```{r}
+# Mean-Variance relationship Figure
+cut.fit<- cut(fitted(workingModel_GLS), 
+              breaks=quantile(fitted(workingModel_GLS), 
+                              probs=c(seq(0,1,length=100))))
+
+means1<- tapply(fitted(workingModel_GLS),cut.fit,mean)
+vars1<- tapply(residuals(workingModel_GLS),cut.fit,var)
+
+fitted1<- (summary(workingModel_GLS)$sigma^2)*exp(2*coef(workingModel_GLS$model)*means1)
+df1<-data.frame(means1,vars1,fitted1)
+colnames(df1)=c("Means","Vars","Fitted")
+
+ggplot(df1, aes(x=Means, y=Vars))+
+   geom_point()+geom_line(aes(Means,Fitted),color="red") + 
+   xlab("Fitted Values") + ylab("Variance of the residuals")
+```
+
+Due to the extreme nature of this non-constant error variance, the GLS-based model conclusions (based on *p*-values) are quite different to the constant-variance based conclusions. In particular, the Y-coordinate and distance from coast relationships are no longer statistically significant in the new model.
+
+Further, the AIC favours the GLS-based model.
+
+```{r}
+require(car)
+Anova(sqrtModel)
+anova(workingModel_GLS, type = "marginal")
+AIC(sqrtModel,workingModel_GLS)
+#summary(workingModel_GLS)
+```
+
+
+## 3.2 Assessing residual independence
+
+Despite including extra covariates in our model, the residuals still appear to be correlated when plotted in observation order (see Figure below).
+
+```{r}
+par(mfrow=c(1,2))
+plot(residuals(workingModel_GLS)[1:500], type="l", ylab="Residuals GLS")
+acf(residuals(workingModel_GLS), main="ACF of the GLS Residuals")
+```
+
+The Durbin-Watson test confirms this postive residual correlation:
+```{r}
+durbinWatsonTest(sqrtModel)
+```
+
+However technically this result is approximate since this function only works on lm-based models (and we are currently using a GLS-based model).
+
+The practical consequences of falsely assuming independence are unknown to us at this point; we could be concluding that one or more (unrelated) variables are genuinely related to the response.
+
+We have 3 options in this case. We can
+
+ - 1. **ignore** the correlation in the residuals; easy but unwise: current model conclusions may be quite misleading
+ 
+ - 2. **remove** the correlation in model residuals by sub-setting the data (e.g. re-run analysis using every 20th observation). This is also easy, but a waste of information and may require many sub-setting attempts to remove the correlation in full
+ 
+ - 3. **account** for the type of correlation seen in the residuals and fit a more appropriate model which does not assume independence.This takes extra time but data are not wasted and a defensible comparison with original results is available.
+
+
+## 3.3 Modelling residual correlation using GLS
+
+A model for the correlation structure (i.e. across time or across spatial co-ordinates) must be chosen or a flexible (parameter hungry) structure used. The structure is typically chosen based on the sampling design. In this case, these data were collected along transects over time and so a decaying function of time might be reasonable.
+
+Correlation structures can be chosen using autocorrelation functions (**acf**).
+
+We are going to compare AR(1), AR(2) and AR(3) auto-regressive correlation structures for the residuals within blocks using objective fit criteria (such as the AIC statistic).
+
+```{r}
+# AR(1)
+workingModel_GLScorr<- gls(sqrt(Count/Area) ~ YPos + DistCoast + Depth + 
+                             FMonth + Phase * XPos, data = df, weights=varExp(),
+                           correlation=corAR1(form =~1|TransectID),method="ML")
+# summary(workingModel_GLScorr)
+
+
+# AR(2)
+workingModel_GLScorr2<-update(workingModel_GLScorr,
+                              corr = corARMA(p = 2, q = 0, form = ~ 1 | TransectID))
+#summary(workingModel_GLScorr2)
+
+
+#AR(3)
+workingModel_GLScorr3<-update(workingModel_GLScorr,
+                              corr = corARMA(p = 3, q = 0, form = ~ 1 | TransectID))
+#summary(workingModel_GLScorr3)
+
+AIC(workingModel_GLS, 
+    workingModel_GLScorr, 
+    workingModel_GLScorr2, 
+    workingModel_GLScorr3)
+
+BIC(workingModel_GLS, 
+    workingModel_GLScorr, 
+    workingModel_GLScorr2, 
+    workingModel_GLScorr3)
+```
+
+Notice, the AR models add as many parameters as the order: AR(1) needs 1, AR(2) needs 2 etc. and the AR(2) model appears to fit the best based on the AIC (and BIC) scores.
+
+
+```{r}
+par(mfrow=c(1,1))
+Lag<-0:15
+Empirical<-acf(residuals(sqrtModel),lag.max=15, plot=FALSE)[[1]]
+AR1<-ARMAacf(ar = c(0.2707919), ma = 0,
+             lag.max = 15, pacf = FALSE)
+AR2<-ARMAacf(ar = c(0.2270812, 0.1596690),
+              ma = 0, lag.max = 15, pacf = FALSE)
+AR3<-ARMAacf(ar = c(0.21731241, 0.14564488, 0.06111608  ),
+              ma = 0, lag.max = 15, pacf = FALSE)
+
+
+dacf<-data.frame(Lag,Empirical,AR1,AR2,AR3 )
+
+require(tidyr)
+dacf<-dacf %>%  gather(key = "Series", value = "ACF",- Lag )
+ggplot(dacf,aes(x=Lag,y=ACF)) + 
+  geom_point(aes(color=Series), size=3) +
+  geom_line(aes(color=Series, linetype=Series))
+```
+
+```{r}
+# No correlation
+anova(workingModel_GLS, type="marginal") 
+# AR(1)
+anova(workingModel_GLScorr, type="marginal")
+# AR(2)
+anova(workingModel_GLScorr2, type="marginal")
+# AR(3)
+anova(workingModel_GLScorr3, type="marginal")
+# Confidence Intervals
+intervals(workingModel_GLScorr2) 
+```
+
+In this case, there don’t appear to be any major practical consequence of acknowledging non-independence in the residuals. The *p*-values don’t change in any substantial way across models but we could not have known this without carrying out this work.
+
+We can measure the adequacy of a correlation method using normalised residuals. These are the raw residuals adjusted for the variance covariance estimated to be present within the errors for the blocks/panels/subjects (i.e. transect-days). If the correlation and variance structures used in the model are correct, the normalised residuals should be independent and approximately Normally distributed with mean zero and constant variance. In this case, we can see that the correlation-based models substantially reduce the residual auto-correlation (Figure below):
+
+```{r}
+# Compare ACF plots
+par(mfrow=c(2,2))
+acf(residuals(workingModel_GLS), main="Residual Indep.")
+acf(residuals(workingModel_GLScorr, type="normalized"),
+    main="Residuals for AR(1) model")
+acf(residuals(workingModel_GLScorr2, type="normalized"),
+    main="Residuals for AR(2) model")
+acf(residuals(workingModel_GLScorr3, type="normalized"),
+    main="Residuals for AR(3) model")
+```
+
+## 3.4 Assessing normality
+
+The normalised residuals appear to be right skewed compared with what we would expect from a Normal distribution (Figure below) and could be of some practical concern.
+```{r}
+hist(residuals(workingModel_GLScorr2, type="normalized"), main='')
+```
+
+## 3.5 Conclusions to date
+
+We need to do more to be able to answer our research questions - while there is little/no evidence of any density changes across phase this model was both a poor fit to the data and gave impossible predictions (negative values). For this reason we continued to fit models to a square root transformed response – in this way model predictions were guaranteed to be positive by back transforming (i.e. ‘squaring’) the fitted values. While this model type ensures the back transformed predictions are non-negative, working with a transformed response rendered parameter interpretation difficult/impossible. Based on models fitted to the transformed response, the following was noted:
+
+ - There was evidence for substantial non-constant error variance and this proved difficult to approximate using GLS-based models (and the available variance structures).
+ 
+ - There was also significant levels of temporal correlation evident in model residuals and of those available/tried, the AR(2) model appears to approximate this best.
+ 
+ - Despite the transformed response, we still have some right-skewness in model residuals. Based on the final model to date, there does seem to be some redistribution of (square root) density in the X and Y co-ordinate direction. However, the evidence for the relationship with the Y co-ordinate is not compelling.
+ 
+ - There also seems to be genuine relationships for depth and month, with lower densities in deeper waters and differences in densities across months.
